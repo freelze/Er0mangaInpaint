@@ -10,6 +10,8 @@ import numpy as np
 from saicinpainting.evaluation.masks.mask import SegmentationMask
 from saicinpainting.utils import LinearRamp
 
+from test_gen_seg import make_mask
+
 LOGGER = logging.getLogger(__name__)
 
 
@@ -83,6 +85,16 @@ def make_random_rectangle_mask(shape, margin=10, bbox_min_size=30, bbox_max_size
     return mask[None, ...]
 
 
+class HMaskGenerator:
+    def __init__(self):
+        pass
+
+    def __call__(self, img, iter_i=None, raw_image=None):
+        #mask = 1 - make_mask(256, 256)
+        mask = make_mask(256, 256)[..., 0]/255
+        return mask[None, ...].astype(np.float32)
+
+
 class RandomRectangleMaskGenerator:
     def __init__(self, margin=10, bbox_min_size=30, bbox_max_size=100, min_times=0, max_times=3, ramp_kwargs=None):
         self.margin = margin
@@ -99,7 +111,6 @@ class RandomRectangleMaskGenerator:
         return make_random_rectangle_mask(img.shape[1:], margin=self.margin, bbox_min_size=self.bbox_min_size,
                                           bbox_max_size=cur_bbox_max_size, min_times=self.min_times,
                                           max_times=cur_max_times)
-
 
 class RandomSegmentationMaskGenerator:
     def __init__(self, **kwargs):
@@ -250,9 +261,10 @@ class OutpaintingMaskGenerator:
 
 
 class MixedMaskGenerator:
-    def __init__(self, irregular_proba=1/3, irregular_kwargs=None,
-                 box_proba=1/3, box_kwargs=None,
-                 segm_proba=1/3, segm_kwargs=None,
+    def __init__(self, irregular_proba=1/6, irregular_kwargs=None,
+                 box_proba=1/6, box_kwargs=None,
+                 segm_proba=1/6, segm_kwargs=None,
+                 h_proba=3/6, h_kwargs=None,
                  squares_proba=0, squares_kwargs=None,
                  superres_proba=0, superres_kwargs=None,
                  outpainting_proba=0, outpainting_kwargs=None,
@@ -274,6 +286,12 @@ class MixedMaskGenerator:
             if box_kwargs is None:
                 box_kwargs = {}
             self.gens.append(RandomRectangleMaskGenerator(**box_kwargs))
+
+        if h_proba > 0:
+            self.probas.append(h_proba)
+            if h_kwargs is None:
+                h_kwargs = {}
+            self.gens.append(HMaskGenerator(**h_kwargs))
 
         if segm_proba > 0:
             self.probas.append(segm_proba)

@@ -67,18 +67,22 @@ class InpaintingDataset(Dataset):
         return len(self.mask_filenames)
 
     def __getitem__(self, i):
-        image = load_image(self.img_filenames[i], mode='RGB')
-        mask = load_image(self.mask_filenames[i], mode='L')
-        result = dict(image=image, mask=mask[None, ...])
+        image, img_orig = load_image(self.img_filenames[i], mode='RGB', return_orig=True)
+        mask, mask_orig = load_image(self.mask_filenames[i], mode='L', return_orig=True)
+        result = dict(image=image, mask=mask[None, ...], image_orig=img_orig, mask_orig=mask_orig[None, ...])
 
         if self.scale_factor is not None:
             result['image'] = scale_image(result['image'], self.scale_factor)
             result['mask'] = scale_image(result['mask'], self.scale_factor, interpolation=cv2.INTER_NEAREST)
+            result['image_orig'] = scale_image(result['image_orig'], self.scale_factor)
+            result['mask_orig'] = scale_image(result['mask_orig'], self.scale_factor, interpolation=cv2.INTER_NEAREST)
 
         if self.pad_out_to_modulo is not None and self.pad_out_to_modulo > 1:
             result['unpad_to_size'] = result['image'].shape[1:]
             result['image'] = pad_img_to_modulo(result['image'], self.pad_out_to_modulo)
             result['mask'] = pad_img_to_modulo(result['mask'], self.pad_out_to_modulo)
+            result['image_orig'] = pad_img_to_modulo(result['image_orig'], self.pad_out_to_modulo)
+            result['mask_orig'] = pad_img_to_modulo(result['mask_orig'], self.pad_out_to_modulo)
 
         return result
 

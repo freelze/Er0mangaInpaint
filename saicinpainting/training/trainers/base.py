@@ -131,6 +131,7 @@ class BaseInpaintingTrainingModule(ptl.LightningModule):
         return dataloader
 
     def val_dataloader(self):
+        return [self.train_dataloader(), self.train_dataloader()]
         res = [make_default_val_dataloader(**self.config.data.val)]
 
         if self.config.data.visual_test is not None:

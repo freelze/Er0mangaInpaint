@@ -1,4 +1,5 @@
 import glob
+import os.path as osp
 import logging
 import os
 import random
@@ -19,30 +20,131 @@ from saicinpainting.evaluation.data import InpaintingDataset as InpaintingEvalua
 from saicinpainting.training.data.aug import IAAAffine2, IAAPerspective2
 from saicinpainting.training.data.masks import get_mask_generator
 
+from test_gen_seg import augment, aug_coord, rand_color
+
 LOGGER = logging.getLogger(__name__)
 
 
 class InpaintingTrainDataset(Dataset):
     def __init__(self, indir, mask_generator, transform):
         self.in_files = list(glob.glob(os.path.join(indir, '**', '*.jpg'), recursive=True))
+        self.in_files += list(glob.glob(os.path.join(indir, '**', '*.png'), recursive=True))
+
+        def read_txt(txt_name):
+            d = dict()
+            with open(txt_name, 'r') as f:
+                for line in f:
+                    name, status, *boxes = line.split()
+                    boxes = [int(x) for x in boxes]
+                    boxes = np.array(boxes).reshape(-1, 4)
+                    d[name] = {'status': status, 'boxes': boxes}
+            return d
+
+        img_dir = indir
+        ann_f = os.path.join(os.path.dirname(img_dir), 'annot_'+os.path.basename(img_dir)[len('data_'):])+'.txt'
+        print(img_dir, ann_f)
+        d = read_txt(ann_f)
+
+        self.data_list = []
+        for img_f in self.in_files:
+            img = os.path.basename(img_f)
+
+            if not img in d:
+                continue
+            if d[img]['status'] != 'OK':
+                continue
+            if d[img]['boxes'].shape[0] == 0:
+                continue
+
+            data_info = dict(img_path=osp.join(img_dir, img))
+            data_info['seg_fields'] = []
+            data_info['boxes'] = d[img]['boxes']
+            self.data_list.append(data_info)
+
+
+        self.data_list = sorted(self.data_list, key=lambda x: x['img_path'])
+        print(f'Training on {len(self.data_list)} images!')
+
+
         self.mask_generator = mask_generator
         self.transform = transform
         self.iter_i = 0
 
     def __len__(self):
-        return len(self.in_files)
+        return len(self.data_list)
 
     def __getitem__(self, item):
-        path = self.in_files[item]
-        img = cv2.imread(path)
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        img = self.transform(image=img)['image']
-        img = np.transpose(img, (2, 0, 1))
-        # TODO: maybe generate mask before augmentations? slower, but better for segmentation-based masks
-        mask = self.mask_generator(img, iter_i=self.iter_i)
-        self.iter_i += 1
-        return dict(image=img,
-                    mask=mask)
+        while True:
+            try:
+            #if True:
+                cdata = self.data_list[item]
+                path = cdata['img_path']
+                img = cv2.imread(path)
+                img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+
+                res = 256
+                H, W, C = img.shape
+                if H < res or W < res:
+                    top = 0
+                    bottom = max(0, res - H)
+                    left = 0
+                    right = max(0, res - W)
+                    img = cv2.copyMakeBorder(img, top, bottom, left, right, cv2.BORDER_REFLECT)
+                H, W, C = img.shape
+
+
+                rand = np.random.uniform() > 0.9999
+                if rand:
+                    h = np.random.randint(int(min(H,W)*0.03), int(min(H,W)*0.3))
+                    w = h #int(h*np.random.uniform(0.5, 2.0))
+                    sx = np.random.randint(H-h-1)
+                    sy = np.random.randint(W-w-1)
+                    coord = [sx, sy, sx + h, sy + w]
+                else:
+                    boxes = cdata['boxes']
+                    coord = boxes[np.random.randint(boxes.shape[0])]
+
+                if not rand:
+                    (xmin, ymin, xmax, ymax) = aug_coord(coord, img.shape[0], img.shape[1])
+                    #(xmin, ymin, xmax, ymax) = coord
+                    def tosq(xmin, ymin, xmax, ymax):
+                        sx, sy = (xmax - xmin)//2, (ymax - ymin)//2
+                        sxy = (sx + sy) // 2
+                        cx, cy = (xmax + xmin)//2, (ymax + ymin)//2
+                        return cx - sxy, cy - sxy, cx + sxy, cy + sxy
+
+                    (xmin, ymin, xmax, ymax) = tosq(xmin, ymin, xmax, ymax) 
+                else:
+                    (xmin, ymin, xmax, ymax) = coord
+
+
+                img = img[xmin:xmax, ymin:ymax, :]
+                ppp = np.random.randint(4)
+                if ppp == 0:
+                    inter = cv2.INTER_LINEAR
+                elif ppp == 1:
+                    inter = cv2.INTER_NEAREST
+                elif ppp == 2:
+                    inter = cv2.INTER_CUBIC
+                else:
+                    inter = cv2.INTER_AREA
+                img = cv2.resize(img, dsize=(res, res), interpolation=inter)
+
+
+                img = self.transform(image=img)['image']
+
+
+                img = np.transpose(img, (2, 0, 1))
+                # TODO: maybe generate mask before augmentations? slower, but better for segmentation-based masks
+                mask = self.mask_generator(img, iter_i=self.iter_i)
+                self.iter_i += 1
+                return dict(image=img,
+                            mask=mask)
+            except Exception as e:
+                print(item, 'Err: ' + str(e))
+                item = np.random.randint(0, len(self.in_files)-1)
+                continue
 
 
 class InpaintingTrainWebDataset(IterableDataset):
@@ -196,6 +298,10 @@ def get_transforms(transform_variant, out_size):
         ])
     elif transform_variant == 'no_augs':
         transform = A.Compose([
+            A.RandomRotate90(),
+            A.Transpose(),
+            A.VerticalFlip(),
+            A.HorizontalFlip(),
             A.ToFloat()
         ])
     else:
