@@ -74,7 +74,7 @@ def inpaint(model, image_orig, mask_orig):
     f = 4
     ker = np.ones((0,0), dtype=np.uint8)
     mask_orig2 = cv2.resize(255-mask_orig, (mask_orig.shape[1]//f, mask_orig.shape[0]//f), cv2.INTER_AREA)
-    its = 36//f
+    its = 36//f 
     mask_orig2 = cv2.erode(mask_orig2, kernel=ker, iterations=its)
     regions = find_regions(np.dstack([mask_orig2, mask_orig2, mask_orig2]), (0, 0, 0)) 
     for i in range(len(regions)):
@@ -166,7 +166,7 @@ def main():
         os.makedirs(args.debug_dir)
 
     files = os.listdir(args.in_dir)
-    files = [f for f in files if f.endswith(('.png', ))]
+    files = [f for f in files if f.endswith(('.png', 'jpg', 'jpeg'))]
     for img_f in files:
         in_file = os.path.join(args.in_dir, img_f)
         mask_file = os.path.join(args.mask_dir, img_f)
